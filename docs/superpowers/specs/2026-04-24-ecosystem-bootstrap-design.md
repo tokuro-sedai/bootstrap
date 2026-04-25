@@ -25,9 +25,9 @@ no-op for every step except `arcturus`, which runs `git pull`.
    not do automatically).
 4. Ensure Claude Code is authed as `jonathan.wheeler@lifemaideasier.com`.
    If authed but to a different account: log out and re-auth.
-5. Ensure `gh` is authed to a GitHub account with `tokuro-sedai` org access
-   (`jonathan.wheeler@witechnologies.org`), AND ensure `gh` is wired as
-   git's credential helper for `github.com`.
+5. Ensure `gh` is authed as the `tokuro-sedai` GitHub user account
+   (associated email `jonathan.wheeler@witechnologies.org`), AND ensure
+   `gh` is wired as git's credential helper for `github.com`.
 6. Ensure the `extremis` plugin is installed (marketplace:
    `tokuro-sedai/extremis`, private — requires step 5).
 7. Ensure the `superpowers` plugin is installed (marketplace:
@@ -185,9 +185,9 @@ does NOT do (the out-of-scope list above).
 
 Split probe: satisfied iff BOTH of these hold.
 
-- **Sub-probe 5a — gh authed**: `gh auth status` shows
-  authenticated + expected username on `github.com` + `tokuro-sedai` org
-  visible (`gh api /user/orgs --jq '.[].login'` contains `tokuro-sedai`).
+- **Sub-probe 5a — gh authed**: `gh auth status` shows authenticated on
+  `github.com` AND `gh api user --jq '.login'` returns `tokuro-sedai`
+  (i.e., the active gh account IS the tokuro-sedai user).
 - **Sub-probe 5b — git credential helper wired**:
   `git config --get-all credential.https://github.com.helper` contains
   `gh auth git-credential` (or equivalent `gh`-based helper line).
@@ -338,9 +338,9 @@ Slugs are stable — test cards reference them via `covers:` frontmatter.
 - **ac-claude-authed** (step 4) — `claude auth status` reports
   authenticated as `jonathan.wheeler@lifemaideasier.com`.
 - **ac-gh-authed-and-credhelper** (step 5) — `gh auth status` shows
-  authenticated on github.com with `tokuro-sedai` org access, AND
-  `git config --get-all credential.https://github.com.helper` contains
-  a `gh auth git-credential` entry.
+  authenticated on github.com AND `gh api user --jq .login` returns
+  `tokuro-sedai`, AND `git config --get-all credential.https://github.com.helper`
+  contains a `gh auth git-credential` entry.
 - **ac-extremis-installed** (step 6) — `claude plugin list --json`
   contains a plugin whose id matches `extremis@*`.
 - **ac-superpowers-installed** (step 7) — `claude plugin list --json`

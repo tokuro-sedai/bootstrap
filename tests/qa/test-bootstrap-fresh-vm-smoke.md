@@ -89,9 +89,9 @@ Each bullet is independently verifiable. ALL must pass.
   `jonathan.wheeler@lifemaideasier.com`.
 - **ac-gh-authed-and-credhelper** —
   `gh auth status` shows authenticated on `github.com`, AND
-  `gh api user/orgs --jq '.[].login'` output contains `tokuro-sedai`,
-  AND `git config --get-all credential.https://github.com.helper`
-  output contains a line referring to `gh auth git-credential`.
+  `gh api user --jq '.login'` returns `tokuro-sedai`, AND
+  `git config --get-all credential.https://github.com.helper` output
+  contains a line referring to `gh auth git-credential`.
 - **ac-extremis-installed** —
   `claude plugin list --json | ConvertFrom-Json | Where-Object { $_.id -like 'extremis@*' }`
   returns at least one result.
