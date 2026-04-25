@@ -99,3 +99,28 @@ function Ensure-Git {
     $version = (& git --version) -replace '^git version ', ''
     Write-StepStatus -Status changed -Detail "installed git $version"
 }
+
+# --- step 2: ensure git config (global identity) -------------------------
+
+function Ensure-GitConfig {
+    Write-StepHeader -Label 'git config'
+
+    $currentName  = (& git config --global user.name)  2>$null
+    $currentEmail = (& git config --global user.email) 2>$null
+
+    if ($currentName -eq $Script:ExpectedGitName -and $currentEmail -eq $Script:ExpectedGitEmail) {
+        Write-StepStatus -Status skipped -Detail "$currentName <$currentEmail>"
+        return
+    }
+
+    & git config --global user.name  $Script:ExpectedGitName
+    & git config --global user.email $Script:ExpectedGitEmail
+
+    $afterName  = (& git config --global user.name)  2>$null
+    $afterEmail = (& git config --global user.email) 2>$null
+    if ($afterName -ne $Script:ExpectedGitName -or $afterEmail -ne $Script:ExpectedGitEmail) {
+        throw "Ensure-GitConfig post-check failed: name='$afterName' email='$afterEmail'"
+    }
+
+    Write-StepStatus -Status changed -Detail "set ($afterName <$afterEmail>)"
+}
