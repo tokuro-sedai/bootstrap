@@ -159,3 +159,43 @@ function Ensure-Claude {
     $version = (& claude --version 2>$null) -replace '^.*?(\d[\d.]*\S*).*$', '$1'
     Write-StepStatus -Status changed -Detail "installed claude $version, added $Script:ClaudeBinDir to user PATH"
 }
+
+# --- step 4: ensure claude auth ------------------------------------------
+
+function Get-ClaudeAuthedEmail {
+    # Returns the authed email or $null. Parsing is implementation-specific
+    # and may need to be adjusted if `claude auth status` output changes.
+    $output = & claude auth status 2>&1
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $line = $output | Where-Object { $_ -match '[\w._%+-]+@[\w.-]+\.\w+' } | Select-Object -First 1
+    if (-not $line) { return $null }
+    if ($line -match '([\w._%+-]+@[\w.-]+\.\w+)') { return $Matches[1] }
+    return $null
+}
+
+function Ensure-ClaudeAuth {
+    Write-StepHeader -Label 'claude auth'
+
+    $email = Get-ClaudeAuthedEmail
+    if ($email -eq $Script:ExpectedClaudeEmail) {
+        Write-StepStatus -Status skipped -Detail $email
+        return
+    }
+
+    if ($email -and $email -ne $Script:ExpectedClaudeEmail) {
+        Write-Host ""
+        Write-Host "  Claude is currently authed as $email; expected $Script:ExpectedClaudeEmail. Logging out..." -ForegroundColor Yellow
+        & claude auth logout 2>&1 | Out-Null
+    }
+
+    Write-Host ""
+    Write-Host "  Launching 'claude auth login'. Complete the browser flow as $Script:ExpectedClaudeEmail." -ForegroundColor Yellow
+    & claude auth login
+
+    $after = Get-ClaudeAuthedEmail
+    if ($after -ne $Script:ExpectedClaudeEmail) {
+        throw "Ensure-ClaudeAuth post-check failed: authed as '$after', expected '$Script:ExpectedClaudeEmail'."
+    }
+
+    Write-StepStatus -Status changed -Detail "authed as $after"
+}
