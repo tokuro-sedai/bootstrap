@@ -30,3 +30,40 @@ $Script:ClaudeBinDir        = Join-Path $env:USERPROFILE '.local\bin'
 
 $Script:StepCount = 8
 $Script:StepIndex = 0
+
+# --- print helpers -------------------------------------------------------
+
+function Write-StepHeader {
+    param([Parameter(Mandatory)][string]$Label)
+    $Script:StepIndex++
+    $tag = "[{0}/{1}] {2,-22}" -f $Script:StepIndex, $Script:StepCount, $Label
+    Write-Host -NoNewline "$tag ..."
+}
+
+function Write-StepStatus {
+    param(
+        [Parameter(Mandatory)][ValidateSet('skipped','changed','failed')][string]$Status,
+        [Parameter(Mandatory)][string]$Detail
+    )
+    $word = switch ($Status) {
+        'skipped' { 'already satisfied' }
+        'changed' { 'changed' }
+        'failed'  { 'FAILED' }
+    }
+    $color = switch ($Status) {
+        'skipped' { 'DarkGray' }
+        'changed' { 'Green'    }
+        'failed'  { 'Red'      }
+    }
+    Write-Host " $word ($Detail)" -ForegroundColor $color
+}
+
+# --- PATH refresh --------------------------------------------------------
+
+function Update-EnvPath {
+    # Refresh the in-process PATH from User + Machine env so newly-installed
+    # binaries are discoverable in this session.
+    $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $user    = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:PATH = ($machine, $user | Where-Object { $_ } ) -join ';'
+}
