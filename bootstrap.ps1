@@ -199,3 +199,56 @@ function Ensure-ClaudeAuth {
 
     Write-StepStatus -Status changed -Detail "authed as $after"
 }
+# --- step 5: ensure gh auth + git credential helper ----------------------
+
+function Test-GhAuthOk {
+    & gh auth status 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+
+    $orgs = & gh api 'user/orgs' --jq '.[].login' 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    return ($orgs -split "`n") -contains 'tokuro-sedai'
+}
+
+function Test-GhCredHelperOk {
+    $helper = & git config --get-all 'credential.https://github.com.helper' 2>$null
+    if (-not $helper) { return $false }
+    return ($helper | Out-String) -match 'gh\b.*auth\b.*git-credential'
+}
+
+function Ensure-GhAuth {
+    Write-StepHeader -Label 'gh auth'
+
+    $authOk   = Test-GhAuthOk
+    $helperOk = Test-GhCredHelperOk
+
+    if ($authOk -and $helperOk) {
+        Write-StepStatus -Status skipped -Detail 'authed + credential helper wired'
+        return
+    }
+
+    if (-not $authOk) {
+        Write-Host ""
+        Write-Host "  Launching 'gh auth login'. Complete the browser flow as the tokuro-sedai-org account." -ForegroundColor Yellow
+        & gh auth login --web --hostname github.com --git-protocol https
+        if ($LASTEXITCODE -ne 0) {
+            throw "gh auth login exited with $LASTEXITCODE"
+        }
+    }
+
+    # Always run setup-git: idempotent and ensures the helper is wired
+    # regardless of how the user answered the inline prompt.
+    & gh auth setup-git --hostname github.com
+    if ($LASTEXITCODE -ne 0) {
+        throw "gh auth setup-git --hostname github.com exited with $LASTEXITCODE"
+    }
+
+    if (-not (Test-GhAuthOk)) {
+        throw "Ensure-GhAuth post-check failed: gh not authenticated or tokuro-sedai org not visible."
+    }
+    if (-not (Test-GhCredHelperOk)) {
+        throw "Ensure-GhAuth post-check failed: git credential helper for github.com is not configured to use gh."
+    }
+
+    Write-StepStatus -Status changed -Detail 'authed + credential helper wired'
+}
