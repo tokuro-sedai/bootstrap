@@ -205,9 +205,9 @@ function Test-GhAuthOk {
     & gh auth status 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { return $false }
 
-    $orgs = & gh api 'user/orgs' --jq '.[].login' 2>$null
-    if ($LASTEXITCODE -ne 0) { return $false }
-    return ($orgs -split "`n") -contains 'tokuro-sedai'
+    $login = & gh api user --jq '.login' 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $login) { return $false }
+    return $login.Trim() -eq 'tokuro-sedai'
 }
 
 function Test-GhCredHelperOk {
