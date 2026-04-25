@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Bootstrap a fresh Windows 11 machine for the Claude + arcturus ecosystem.
@@ -66,4 +66,36 @@ function Update-EnvPath {
     $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $user    = [Environment]::GetEnvironmentVariable('Path', 'User')
     $env:PATH = ($machine, $user | Where-Object { $_ } ) -join ';'
+}
+
+# --- step 1: ensure git --------------------------------------------------
+
+function Ensure-Git {
+    Write-StepHeader -Label 'git'
+
+    $cmd = Get-Command git -ErrorAction SilentlyContinue
+    if ($cmd) {
+        $version = (& git --version) -replace '^git version ', ''
+        Write-StepStatus -Status skipped -Detail "git $version"
+        return
+    }
+
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw "git is missing and winget is not available — cannot install. Install winget (Windows 11 App Installer) and re-run."
+    }
+
+    & winget install --id Git.Git -e --source winget --silent --accept-source-agreements --accept-package-agreements | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "winget install Git.Git failed with exit code $LASTEXITCODE"
+    }
+
+    Update-EnvPath
+
+    $cmd = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        throw "Ensure-Git post-check failed: git still not on PATH after install."
+    }
+
+    $version = (& git --version) -replace '^git version ', ''
+    Write-StepStatus -Status changed -Detail "installed git $version"
 }
