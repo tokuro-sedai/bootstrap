@@ -288,3 +288,53 @@ function Ensure-Plugin {
 
     Write-StepStatus -Status changed -Detail "installed $($after.id)"
 }
+# --- step 8: ensure arcturus checkout ------------------------------------
+
+function Test-ArcturusOriginMatches {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path (Join-Path $Path '.git'))) { return $false }
+    $url = & git -C $Path remote get-url origin 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $url) { return $false }
+    return $url -match 'tokuro-sedai/arcturus(\.git)?$'
+}
+
+function Ensure-Arcturus {
+    Write-StepHeader -Label 'arcturus'
+
+    $target = $Script:ArcturusTargetPath
+
+    if (Test-Path $target) {
+        if (-not (Test-ArcturusOriginMatches -Path $target)) {
+            throw "Ensure-Arcturus: '$target' exists but is not a tokuro-sedai/arcturus checkout — refusing to touch."
+        }
+        $before = (& git -C $target rev-parse HEAD).Trim()
+        & git -C $target pull --ff-only 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "git -C $target pull --ff-only exited with $LASTEXITCODE"
+        }
+        $after = (& git -C $target rev-parse HEAD).Trim()
+        if ($before -eq $after) {
+            Write-StepStatus -Status skipped -Detail "up to date at $target"
+        } else {
+            $count = (& git -C $target rev-list --count "$before..$after").Trim()
+            Write-StepStatus -Status changed -Detail "pulled, $count new commit(s) at $target"
+        }
+        return
+    }
+
+    $parent = Split-Path $target -Parent
+    if (-not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    & gh repo clone $Script:ArcturusRepo $target
+    if ($LASTEXITCODE -ne 0) {
+        throw "gh repo clone $Script:ArcturusRepo $target exited with $LASTEXITCODE"
+    }
+
+    if (-not (Test-ArcturusOriginMatches -Path $target)) {
+        throw "Ensure-Arcturus post-check failed: $target is not a valid arcturus checkout."
+    }
+
+    Write-StepStatus -Status changed -Detail "cloned to $target"
+}
