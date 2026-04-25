@@ -124,3 +124,38 @@ function Ensure-GitConfig {
 
     Write-StepStatus -Status changed -Detail "set ($afterName <$afterEmail>)"
 }
+# --- step 3: ensure claude (install + persist user PATH) -----------------
+
+function Add-DirToUserPath {
+    param([Parameter(Mandatory)][string]$Dir)
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $segments = if ($userPath) { $userPath -split ';' } else { @() }
+    if ($segments -notcontains $Dir) {
+        $segments += $Dir
+        [Environment]::SetEnvironmentVariable('Path', ($segments -join ';'), 'User')
+    }
+}
+
+function Ensure-Claude {
+    Write-StepHeader -Label 'claude'
+
+    $cmd = Get-Command claude -ErrorAction SilentlyContinue
+    if ($cmd) {
+        $version = (& claude --version 2>$null) -replace '^.*?(\d[\d.]*\S*).*$', '$1'
+        Write-StepStatus -Status skipped -Detail "claude $version"
+        return
+    }
+
+    Invoke-RestMethod 'https://claude.ai/install.ps1' | Invoke-Expression
+
+    Add-DirToUserPath -Dir $Script:ClaudeBinDir
+    Update-EnvPath
+
+    $cmd = Get-Command claude -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        throw "Ensure-Claude post-check failed: claude still not on PATH after install. Looked in user PATH for $Script:ClaudeBinDir."
+    }
+
+    $version = (& claude --version 2>$null) -replace '^.*?(\d[\d.]*\S*).*$', '$1'
+    Write-StepStatus -Status changed -Detail "installed claude $version, added $Script:ClaudeBinDir to user PATH"
+}
