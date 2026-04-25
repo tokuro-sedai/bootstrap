@@ -252,3 +252,39 @@ function Ensure-GhAuth {
 
     Write-StepStatus -Status changed -Detail 'authed + credential helper wired'
 }
+# --- plugin helper (used by steps 6 and 7) -------------------------------
+
+function Ensure-Plugin {
+    param(
+        [Parameter(Mandatory)][string]$PluginName,
+        [Parameter(Mandatory)][string]$MarketplaceRepo,
+        [Parameter(Mandatory)][string]$PluginSpec,
+        [Parameter(Mandatory)][string]$StepLabel
+    )
+
+    Write-StepHeader -Label $StepLabel
+
+    $installed = & claude plugin list --json 2>$null | ConvertFrom-Json
+    $existing  = $installed | Where-Object { $_.id -like "$PluginName@*" } | Select-Object -First 1
+
+    if ($existing) {
+        Write-StepStatus -Status skipped -Detail $existing.id
+        return
+    }
+
+    & claude plugin marketplace add $MarketplaceRepo 2>&1 | Out-Null
+    # Marketplace add may exit non-zero if already added; that's OK.
+
+    & claude plugin install $PluginSpec --scope user
+    if ($LASTEXITCODE -ne 0) {
+        throw "claude plugin install $PluginSpec exited with $LASTEXITCODE"
+    }
+
+    $installed = & claude plugin list --json 2>$null | ConvertFrom-Json
+    $after = $installed | Where-Object { $_.id -like "$PluginName@*" } | Select-Object -First 1
+    if (-not $after) {
+        throw "Ensure-Plugin post-check failed: $PluginName not present in plugin list after install."
+    }
+
+    Write-StepStatus -Status changed -Detail "installed $($after.id)"
+}
