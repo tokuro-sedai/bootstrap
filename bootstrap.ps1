@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Bootstrap a fresh Windows 11 machine for the Claude + arcturus ecosystem.
@@ -81,7 +81,7 @@ function Ensure-Git {
     }
 
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        throw "git is missing and winget is not available — cannot install. Install winget (Windows 11 App Installer) and re-run."
+        throw "git is missing and winget is not available -- cannot install. Install winget (Windows 11 App Installer) and re-run."
     }
 
     & winget install --id Git.Git -e --source winget --silent --accept-source-agreements --accept-package-agreements | Out-Null
@@ -305,7 +305,7 @@ function Ensure-Arcturus {
 
     if (Test-Path $target) {
         if (-not (Test-ArcturusOriginMatches -Path $target)) {
-            throw "Ensure-Arcturus: '$target' exists but is not a tokuro-sedai/arcturus checkout — refusing to touch."
+            throw "Ensure-Arcturus: '$target' exists but is not a tokuro-sedai/arcturus checkout -- refusing to touch."
         }
         $before = (& git -C $target rev-parse HEAD).Trim()
         & git -C $target pull --ff-only 2>&1 | Out-Null
