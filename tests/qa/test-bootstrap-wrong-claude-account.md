@@ -30,10 +30,10 @@ finishes with `claude auth status` reporting
     account). Used to seed the wrong-state precondition.
   - **Expected account** — `jonathan.wheeler@lifemaideasier.com` via
     OAuth in a browser. Used to satisfy the AC.
-- The operator also has credentials for
-  `jonathan.wheeler@witechnologies.org` with `tokuro-sedai` org access
-  (GitHub) — required so the run reaches Step 4 by completing earlier
-  steps; this card does not assert against `gh`.
+- The operator also has credentials for the `tokuro-sedai` GitHub
+  user account (associated email `jonathan.wheeler@witechnologies.org`)
+  — required so the run reaches Step 4 by completing earlier steps;
+  this card does not assert against `gh`.
 - The operator is logged into Windows as a **non-administrator** user.
 
 ## Setup

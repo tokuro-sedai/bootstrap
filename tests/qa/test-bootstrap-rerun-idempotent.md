@@ -26,8 +26,8 @@ not duplicate the `github.com` credential helper line.
   - Global git identity set to `Tokuro` /
     `jonathan.wheeler@witechnologies.org`.
   - Claude authed as `jonathan.wheeler@lifemaideasier.com`.
-  - `gh` authed on `github.com` with `tokuro-sedai` org access; git
-    credential helper configured.
+  - `gh` authed on `github.com` as the `tokuro-sedai` user account;
+    git credential helper configured.
   - `extremis` and `superpowers` plugins installed.
   - `C:\source\repos\tokuro-sedai\arcturus` is a git work tree whose
     origin is `tokuro-sedai/arcturus`.
