@@ -338,3 +338,28 @@ function Ensure-Arcturus {
 
     Write-StepStatus -Status changed -Detail "cloned to $target"
 }
+# --- main ---------------------------------------------------------------
+
+function Main {
+    $Script:StepIndex = 0
+
+    Ensure-Git
+    Ensure-GitConfig
+    Ensure-Claude
+    Ensure-ClaudeAuth
+    Ensure-GhAuth
+    Ensure-Plugin -PluginName 'extremis' `
+                  -MarketplaceRepo $Script:ExtremisMarketplace `
+                  -PluginSpec 'extremis@extremis' `
+                  -StepLabel 'plugin: extremis'
+    Ensure-Plugin -PluginName 'superpowers' `
+                  -MarketplaceRepo $Script:SuperpowersMarketplace `
+                  -PluginSpec 'superpowers@superpowers-marketplace' `
+                  -StepLabel 'plugin: superpowers'
+    Ensure-Arcturus
+
+    Write-Host ""
+    Write-Host "ecosystem bootstrap complete." -ForegroundColor Green
+}
+
+Main
