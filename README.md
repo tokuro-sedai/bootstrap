@@ -48,6 +48,16 @@ arcturus step, which runs `git pull`.
 - Dotfiles, MCP servers beyond the two plugins.
 - macOS or Linux.
 
+## Behaviour on a non-fresh machine
+
+- If Claude is already authed as a different account, step 4 logs out
+  and prompts a re-login as `jonathan.wheeler@lifemaideasier.com`.
+- If the global git identity is set to other values, step 2 overwrites
+  to `Tokuro` / `jonathan.wheeler@witechnologies.org`.
+- If `C:\source\repos\tokuro-sedai\arcturus` exists but is some other
+  repo, step 8 aborts with "refusing to touch" and does not modify the
+  directory.
+
 ## Design
 
 See `docs/superpowers/specs/` for the design spec and acceptance
