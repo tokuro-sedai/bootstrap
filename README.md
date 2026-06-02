@@ -21,12 +21,13 @@ Eight idempotent steps:
    `jonathan.wheeler@witechnologies.org`.
 3. Installs Claude Code (if missing) and persists
    `%USERPROFILE%\.local\bin` to user PATH.
-4. Authenticates Claude Code as `jonathan.wheeler@lifemaideasier.com`
+4. Authenticates Claude Code as `jonathan.wheeler@witechnologies.org`
    (opens a browser).
-5. Authenticates `gh` as the `tokuro-sedai`-org account, and wires
-   `gh` as git's credential helper for `github.com`.
+5. Installs `gh` (if missing), authenticates it as the
+   `tokuro-sedai`-org account, and wires `gh` as git's credential
+   helper for `github.com`.
 6. Installs the `extremis` plugin from `tokuro-sedai/extremis`.
-7. Installs the `superpowers` plugin from `obra/superpowers-marketplace`.
+7. Installs the `superpowers` plugin from `tokuro-sedai/superpowers-fork`.
 8. Clones `tokuro-sedai/arcturus` to
    `C:\source\repos\tokuro-sedai\arcturus` (or `git pull` if already
    present).
@@ -51,7 +52,7 @@ arcturus step, which runs `git pull`.
 ## Behaviour on a non-fresh machine
 
 - If Claude is already authed as a different account, step 4 logs out
-  and prompts a re-login as `jonathan.wheeler@lifemaideasier.com`.
+  and prompts a re-login as `jonathan.wheeler@witechnologies.org`.
 - If the global git identity is set to other values, step 2 overwrites
   to `Tokuro` / `jonathan.wheeler@witechnologies.org`.
 - If `C:\source\repos\tokuro-sedai\arcturus` exists but is some other

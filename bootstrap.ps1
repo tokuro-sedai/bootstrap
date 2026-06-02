@@ -17,13 +17,13 @@ $ErrorActionPreference = 'Stop'
 
 # --- expected identities and target paths --------------------------------
 
-$Script:ExpectedClaudeEmail = 'jonathan.wheeler@lifemaideasier.com'
+$Script:ExpectedClaudeEmail = 'jonathan.wheeler@witechnologies.org'
 $Script:ExpectedGitName     = 'Tokuro'
 $Script:ExpectedGitEmail    = 'jonathan.wheeler@witechnologies.org'
 $Script:ArcturusRepo        = 'tokuro-sedai/arcturus'
 $Script:ArcturusTargetPath  = 'C:\source\repos\tokuro-sedai\arcturus'
 $Script:ExtremisMarketplace = 'tokuro-sedai/extremis'
-$Script:SuperpowersMarketplace = 'obra/superpowers-marketplace'
+$Script:SuperpowersMarketplace = 'tokuro-sedai/superpowers-fork'
 $Script:ClaudeBinDir        = Join-Path $env:USERPROFILE '.local\bin'
 
 # --- step counter (set by Main; used by Write-StepHeader) ---------------
@@ -219,6 +219,20 @@ function Test-GhCredHelperOk {
 function Ensure-GhAuth {
     Write-StepHeader -Label 'gh auth'
 
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            throw "gh is missing and winget is not available -- cannot install. Install winget (Windows 11 App Installer) and re-run."
+        }
+        & winget install --id GitHub.cli -e --source winget --silent --accept-source-agreements --accept-package-agreements | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "winget install GitHub.cli failed with exit code $LASTEXITCODE"
+        }
+        Update-EnvPath
+        if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+            throw "Ensure-GhAuth post-check failed: gh still not on PATH after install."
+        }
+    }
+
     $authOk   = Test-GhAuthOk
     $helperOk = Test-GhCredHelperOk
 
@@ -354,7 +368,7 @@ function Main {
                   -StepLabel 'plugin: extremis'
     Ensure-Plugin -PluginName 'superpowers' `
                   -MarketplaceRepo $Script:SuperpowersMarketplace `
-                  -PluginSpec 'superpowers@superpowers-marketplace' `
+                  -PluginSpec 'superpowers@superpowers-dev' `
                   -StepLabel 'plugin: superpowers'
     Ensure-Arcturus
 
