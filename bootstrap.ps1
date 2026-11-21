@@ -105,9 +105,14 @@ function Invoke-Interactive {
     )
     $exe = (Get-Command $FilePath -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $quoted = @($ArgumentList | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } })
-    $spArgs = @{ FilePath = $exe; NoNewWindow = $true; Wait = $true; PassThru = $true }
+    # No -Wait: in PS 5.1 it also waits for every DESCENDANT, so a browser the login
+    # spawned would hold the step until the user closed it. WaitForExit() waits for
+    # the login process alone. Touching .Handle first caches it so ExitCode is readable.
+    $spArgs = @{ FilePath = $exe; NoNewWindow = $true; PassThru = $true }
     if ($quoted.Count -gt 0) { $spArgs.ArgumentList = $quoted }
     $p = Start-Process @spArgs
+    $null = $p.Handle
+    $p.WaitForExit()
     return $p.ExitCode
 }
 
@@ -250,7 +255,9 @@ function Test-GlobalCredHelperOk {
     # PortableGit's system gitconfig sets credential.helper=helper-selector, which
     # pops a "Select a credential helper" dialog the first time git needs a
     # credential. A blank global entry severs the system chain; then use GCM.
-    $h = Get-GlobalCredHelpers
+    # @() at the call site: a function emitting an empty array yields $null (.Count
+    # throws under StrictMode) and a 1-entry array yields a bare string.
+    $h = @(Get-GlobalCredHelpers)
     return ($h.Count -ge 2 -and $h[0] -eq '' -and $h[-1] -eq 'manager')
 }
 
