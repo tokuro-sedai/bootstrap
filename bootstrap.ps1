@@ -19,6 +19,20 @@
       an `exit` inside them closes the user's PowerShell window. Child
       process instead.
     * No admin. Every install is per-user; nothing raises a UAC prompt.
+      (winget --scope user for Git.Git still raised UAC: PortableGit instead.)
+    * `& native` inside a function whose result is assigned sends the native
+      command's stdout into the pipeline: the user never sees the sign-in URL
+      or device code, and the tool gets a non-TTY stdout. Interactive tools go
+      through Invoke-Interactive (Start-Process -NoNewWindow).
+    * Start-Process -Wait waits for every DESCENDANT (e.g. the browser a login
+      opened). Use -PassThru + .WaitForExit().
+    * A function returning an empty array returns $null, and a 1-element array
+      returns the bare item; under StrictMode .Count on $null throws. Wrap the
+      call site: @(Get-Thing).
+    * A bare '' native argument is dropped; pass '""' for an empty value.
+    * Keep this file ASCII-only with no BOM.
+    Testing: tests/vm/README.md (`vmctl.py e2e` = fresh VM, unattended, up to
+    the first sign-in via BOOTSTRAP_STOP_BEFORE_SIGNIN=1).
 #>
 
 Set-StrictMode -Version Latest
@@ -45,8 +59,13 @@ $Script:Plugins = @(
     @{ Name = 'simulacrum';  Marketplace = 'simulacrum';      Source = (Join-Path $Script:RepoRoot 'simulacrum');      Kind = 'directory' }
 )
 
-$Script:StepCount = 13
+$Script:StepCount = 15
 $Script:StepIndex = 0
+
+# Test hook: with BOOTSTRAP_STOP_BEFORE_SIGNIN=1 the run stops cleanly right before
+# the first sign-in, so an unattended VM run covers every step that needs no account.
+# Steps are ordered so as much as possible runs before that point.
+$Script:StopBeforeSignIn = ($env:BOOTSTRAP_STOP_BEFORE_SIGNIN -eq '1')
 
 # --- print helpers -------------------------------------------------------
 
@@ -415,14 +434,19 @@ function Test-GhCredHelperOk {
     return ($r.Text -match 'gh(\.exe)?["'']?\s+auth\s+git-credential')
 }
 
+function Ensure-Gh {
+    Write-StepHeader -Label 'gh'
+    if (Test-Cmd gh) {
+        Write-StepStatus -Status skipped -Detail ((Invoke-Native gh @('--version')).Output | Select-Object -First 1)
+        return
+    }
+    $tag = Install-GhPortable
+    if (-not (Test-Cmd gh)) { throw "Ensure-Gh post-check failed: gh not on PATH after install." }
+    Write-StepStatus -Status changed -Detail "installed gh $tag -> $Script:GhInstallDir"
+}
+
 function Ensure-GhAuth {
     Write-StepHeader -Label 'gh auth'
-    $installed = ''
-    if (-not (Test-Cmd gh)) {
-        $tag = Install-GhPortable
-        if (-not (Test-Cmd gh)) { throw "Ensure-GhAuth post-check failed: gh not on PATH after install." }
-        $installed = "installed gh $tag; "
-    }
     $authOk   = Test-GhAuthOk
     $helperOk = Test-GhCredHelperOk
     if ($authOk -and $helperOk) {
@@ -451,7 +475,7 @@ function Ensure-GhAuth {
     if ($r.ExitCode -ne 0) { throw "gh auth setup-git failed ($($r.ExitCode)):`n$($r.Text)" }
     if (-not (Test-GhAuthOk))       { throw "Ensure-GhAuth post-check failed: gh is not authenticated as '$Script:ExpectedGhLogin'." }
     if (-not (Test-GhCredHelperOk)) { throw "Ensure-GhAuth post-check failed: git's github.com credential helper is not gh." }
-    Write-StepStatus -Status changed -Detail "${installed}authed + credential helper wired"
+    Write-StepStatus -Status changed -Detail "authed + credential helper wired"
 }
 
 # --- step: repos (arcturus + simulacrum) ----------------------------------
@@ -576,12 +600,12 @@ function Get-ShortcutBlock {
     $root = $Script:RepoRoot -replace "'", "''"
     $lines = @(
         $Script:ShortcutBegin,
-        '# Managed by tokuro-sedai/bootstrap. For each directory under $repoRoot, defines',
+        '# Managed by tokuro-sedai/bootstrap. For each directory under the repo root, defines',
         '# a function with that name that cds into the repo and launches `claude`.',
         '# Args after the repo name are forwarded (e.g. `arcturus --resume`).',
-        "`$repoRoot = '$root'",
-        'if (Test-Path -LiteralPath $repoRoot) {',
-        '    Get-ChildItem -LiteralPath $repoRoot -Directory | ForEach-Object {',
+        "`$TokuroSedaiRepoRoot = '$root'",
+        'if (Test-Path -LiteralPath $TokuroSedaiRepoRoot) {',
+        '    Get-ChildItem -LiteralPath $TokuroSedaiRepoRoot -Directory | ForEach-Object {',
         '        $body = "Set-Location -LiteralPath ''$($_.FullName -replace "''", "''''")''; claude @args"',
         '        Set-Item -Path "function:global:$($_.Name)" -Value ([scriptblock]::Create($body)) -Force',
         '    }',
@@ -616,21 +640,43 @@ function Ensure-RepoShortcuts {
             $touched += $p
         }
     }
-    # Post-check: a NEW Windows PowerShell loads the profile and defines `arcturus`.
-    # Drop any inherited process-scope policy so the child sees what a fresh window sees.
-    $savedPref = $env:PSExecutionPolicyPreference
-    Remove-Item Env:\PSExecutionPolicyPreference -ErrorAction SilentlyContinue
-    try {
-        $check = Invoke-Native (Join-Path $PSHOME 'powershell.exe') @('-NoLogo', '-NonInteractive', '-Command',
-            "if (Get-Command arcturus -CommandType Function -ErrorAction SilentlyContinue) { 'SHORTCUT-OK' } else { 'SHORTCUT-MISSING' }")
-    } finally {
-        if ($null -ne $savedPref) { $env:PSExecutionPolicyPreference = $savedPref }
-    }
-    if ($check.Text -notmatch 'SHORTCUT-OK') {
-        throw "Ensure-RepoShortcuts post-check failed: a new PowerShell does not define 'arcturus':`n$($check.Text)"
+    # Post-check: a NEW Windows PowerShell runs the profile and the managed block in it.
+    # (Runs before any repo exists, so it checks the block's root variable, not `arcturus`;
+    # Confirm-ArcturusShortcut checks the function itself once the repo is cloned.)
+    $probe = "if (`$global:TokuroSedaiRepoRoot -eq '$($Script:RepoRoot -replace "'", "''")') { 'PROFILE-OK' } else { 'PROFILE-NOT-LOADED' }"
+    $check = Invoke-NewWindowProbe -Command $probe
+    if ($check.Text -notmatch 'PROFILE-OK') {
+        throw "Ensure-RepoShortcuts post-check failed: a new PowerShell did not run the profile block (execution policy?):`n$($check.Text)"
     }
     if ($touched) { Write-StepStatus -Status changed -Detail ("wrote " + ($touched -join ', ')) }
     else          { Write-StepStatus -Status skipped -Detail 'profile block current' }
+}
+
+function Invoke-NewWindowProbe {
+    # Run a command in a NEW Windows PowerShell that loads the profile like a fresh window.
+    # Drop any inherited process-scope policy so the child sees what a fresh window sees.
+    param([Parameter(Mandatory)][string]$Command)
+    $savedPref = $env:PSExecutionPolicyPreference
+    Remove-Item Env:\PSExecutionPolicyPreference -ErrorAction SilentlyContinue
+    try {
+        return Invoke-Native (Join-Path $PSHOME 'powershell.exe') @('-NoLogo', '-NonInteractive', '-Command', $Command)
+    } finally {
+        if ($null -ne $savedPref) { $env:PSExecutionPolicyPreference = $savedPref }
+    }
+}
+
+# --- step: final check -- `arcturus` works in a new window -------------------
+
+function Confirm-ArcturusShortcut {
+    Write-StepHeader -Label 'arcturus shortcut'
+    $want = Join-Path $Script:RepoRoot 'arcturus'
+    $probe = "`$f = Get-Command arcturus -CommandType Function -ErrorAction SilentlyContinue; " +
+             "if (`$f -and `$f.Definition -match [regex]::Escape('$($want -replace "'", "''")')) { 'SHORTCUT-OK' } else { 'SHORTCUT-MISSING' }"
+    $check = Invoke-NewWindowProbe -Command $probe
+    if ($check.Text -notmatch 'SHORTCUT-OK') {
+        throw "a new PowerShell does not define 'arcturus' -> $want :`n$($check.Text)"
+    }
+    Write-StepStatus -Status skipped -Detail "new windows: arcturus -> $want"
 }
 
 # --- main ------------------------------------------------------------------
@@ -643,12 +689,20 @@ function Main {
         Ensure-GitConfig
         Ensure-Python
         Ensure-Claude
+        Ensure-Gh
+        Ensure-RepoShortcuts
+        # --- everything above needs no account; everything below needs a sign-in ---
+        if ($Script:StopBeforeSignIn) {
+            Write-Host ""
+            Write-Host "BOOTSTRAP_STOP_BEFORE_SIGNIN=1: stopped before step $($Script:StepIndex + 1) of $Script:StepCount (first sign-in)." -ForegroundColor Cyan
+            return
+        }
         Ensure-ClaudeAuth
         Ensure-GhAuth
         Ensure-Repos
         foreach ($p in $Script:Plugins) { Ensure-Plugin -Plugin $p }
         Ensure-ClaudeSettings
-        Ensure-RepoShortcuts
+        Confirm-ArcturusShortcut
     } catch {
         Write-StepStatus -Status failed -Detail $_.Exception.Message
         Write-Host ""
