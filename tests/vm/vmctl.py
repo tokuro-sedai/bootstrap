@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -54,6 +55,7 @@ def vm_state() -> str:
 
 def guest_run(ps_command: str, timeout_s: int = 600, check: bool = True) -> subprocess.CompletedProcess:
     """Run PowerShell inside the guest via guestcontrol (service-launched, no desktop)."""
+    ps_command = "$ProgressPreference='SilentlyContinue'; " + ps_command  # keep CLIXML progress out of stdout
     enc = base64.b64encode(ps_command.encode("utf-16-le")).decode()
     r = vbox(
         "guestcontrol", VM, "run",
@@ -107,17 +109,18 @@ def wait_ready(timeout_s: int) -> None:
     deadline = time.time() + timeout_s
     last = ""
     while time.time() < deadline:
-        r = vbox("guestproperty", "get", VM, "/VirtualBox/GuestAdd/RunLevel", check=False)
-        level = r.stdout.strip()
-        if level != last:
-            print(f"  guest additions: {level or 'n/a'}", flush=True)
-            last = level
-        if "Value: 3" in level:  # 3 = userland services up and a user is logged in
+        # Readiness = VBoxService answers guestcontrol AND a user is logged in.
+        # (GuestAdd/RunLevel isn't reliably published, so don't gate on it.)
+        users = vbox("guestproperty", "get", VM, "/VirtualBox/GuestInfo/OS/LoggedInUsers", check=False).stdout.strip()
+        if users != last:
+            print(f"  logged-in users: {users or 'n/a'}", flush=True)
+            last = users
+        if users.startswith("Value:") and users != "Value: 0":
             probe = guest_run("$env:USERNAME", timeout_s=60, check=False)
             if probe.returncode == 0:
-                print(f"ready (logged in as {probe.stdout.strip()})")
+                print(f"ready (guestcontrol as {probe.stdout.strip()})")
                 return
-        time.sleep(20)
+        time.sleep(30)
     raise SystemExit(f"timed out after {timeout_s}s waiting for {VM} to be ready")
 
 
@@ -154,7 +157,10 @@ $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force -Path '{dir}' | Out-Null
 Start-Transcript -Path '{dir}\{name}.log' -Force | Out-Null
 try {{
-    . '{dir}\{name}.body.ps1'
+    # The body arrives inline (never dot-sourced from a file) so the window keeps
+    # the user's REAL execution policy -- a -File/-ExecutionPolicy Bypass launch
+    # would mask exactly the fresh-machine failures we're testing for.
+    Invoke-Expression ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{body_b64}')))
 }} catch {{
     Write-Host "LAUNCHER CAUGHT: $($_.Exception.Message)" -ForegroundColor Red
 }} finally {{
@@ -169,16 +175,32 @@ def cmd_launch(a: argparse.Namespace) -> None:
     """Run a script in the user's interactive desktop session, non-elevated."""
     body = Path(a.script).read_text(encoding="utf-8") if a.script else a.command
     name = a.name
-    launcher = LAUNCHER.format(dir=GUEST_DIR, name=name)
-    # Stage files through a guest command (base64 avoids quoting pitfalls).
+    launcher = LAUNCHER.format(dir=GUEST_DIR, name=name, body_b64=base64.b64encode(body.encode("utf-8")).decode())
+    guest_run(f"New-Item -ItemType Directory -Force -Path '{GUEST_DIR}' | Out-Null", timeout_s=60)
+    with tempfile.TemporaryDirectory() as td:
+        lp = Path(td) / f"{name}.launcher.ps1"
+        lp.write_text(launcher, encoding="utf-8-sig")
+        cp = Path(td) / f"{name}.cmd"
+        # The window starts with NO policy override and NO -NoProfile, exactly like the
+        # user opening a new PowerShell. iex of file text is not policy-gated (same as irm|iex).
+        cp.write_text(
+            f'@start "" "{PS}" -NoExit -Command "iex (Get-Content -Raw \'{GUEST_DIR}\\{name}.launcher.ps1\')"\r\n',
+            encoding="ascii",
+        )
+        for f in (lp, cp):
+            vbox("guestcontrol", VM, "copyto", "--username", USER, "--password", PASSWORD,
+                 str(f), f"{GUEST_DIR}\\{f.name}")
     stage = (
-        f"New-Item -ItemType Directory -Force -Path '{GUEST_DIR}' | Out-Null;"
         f"Remove-Item -Force -ErrorAction SilentlyContinue '{GUEST_DIR}\\{name}.log','{GUEST_DIR}\\{name}.done';"
-        f"[IO.File]::WriteAllBytes('{GUEST_DIR}\\{name}.body.ps1', [Convert]::FromBase64String('{base64.b64encode(body.encode('utf-8-sig')).decode()}'));"
-        f"[IO.File]::WriteAllBytes('{GUEST_DIR}\\{name}.ps1', [Convert]::FromBase64String('{base64.b64encode(launcher.encode('utf-8-sig')).decode()}'));"
-        # Interactive-only, LIMITED run level: shows a normal PowerShell window on the user's desktop.
-        f"$a = New-ScheduledTaskAction -Execute '{PS}' -Argument '-NoExit -ExecutionPolicy Bypass -File {GUEST_DIR}\\{name}.ps1';"
+        # A scheduled task (Interactive, LIMITED) only KICKS the launch: it asks the
+        # user's running Explorer to open the .cmd, so the PowerShell window is a child
+        # of the real shell. Launching the window from the task directly puts it in the
+        # Task Scheduler job object, where browsers start windowless -- `claude auth
+        # login` / `gh auth login` then look broken when they aren't (proven 2026-11-21).
+        f"$a = New-ScheduledTaskAction -Execute 'explorer.exe' -Argument '{GUEST_DIR}\\{name}.cmd';"
         f"$p = New-ScheduledTaskPrincipal -UserId '{USER}' -LogonType Interactive -RunLevel Limited;"
+        # A still-running -NoExit instance makes Start-ScheduledTask a silent no-op (0x800710E0).
+        f"Stop-ScheduledTask -TaskName 'bt-{name}' -ErrorAction SilentlyContinue;"
         f"Register-ScheduledTask -TaskName 'bt-{name}' -Action $a -Principal $p -Force | Out-Null;"
         f"Start-ScheduledTask -TaskName 'bt-{name}';"
         "'launched'"
@@ -215,6 +237,64 @@ def cmd_launch(a: argparse.Namespace) -> None:
     raise SystemExit(f"[{name}] did not finish within {a.timeout}s")
 
 
+def cmd_push(a: argparse.Namespace) -> None:
+    guest_run(f"New-Item -ItemType Directory -Force -Path (Split-Path '{a.dest}') | Out-Null", timeout_s=60)
+    vbox("guestcontrol", VM, "copyto", "--username", USER, "--password", PASSWORD,
+         str(Path(a.src).resolve()), a.dest, capture=False)
+    print(f"copied {a.src} -> {a.dest}")
+
+
+def cmd_type(a: argparse.Namespace) -> None:
+    """Type a line into the focused guest window via the VM's virtual keyboard, then
+    screenshot after --settle seconds. Guest input only; the host is never touched."""
+    vbox("controlvm", VM, "keyboardputstring", a.text)
+    vbox("controlvm", VM, "keyboardputscancode", "1c", "9c")  # Enter
+    time.sleep(a.settle)
+    Path(a.shot).parent.mkdir(parents=True, exist_ok=True)
+    vbox("controlvm", VM, "screenshotpng", str(Path(a.shot).resolve()))
+    print(f"typed {a.text!r}; screenshot {a.shot}")
+
+
+def cmd_shot(a: argparse.Namespace) -> None:
+    Path(a.path).parent.mkdir(parents=True, exist_ok=True)
+    vbox("controlvm", VM, "screenshotpng", str(Path(a.path).resolve()))
+    print(a.path)
+
+
+GSHOT = r"""
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+Add-Type -Namespace BT -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+[void][BT.Dpi]::SetProcessDPIAware()
+$b = [Windows.Forms.SystemInformation]::VirtualScreen
+$bmp = New-Object Drawing.Bitmap $b.Width, $b.Height
+$g = [Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+$bmp.Save('{dir}\gshot.tmp.png', [Drawing.Imaging.ImageFormat]::Png)
+Move-Item -Force '{dir}\gshot.tmp.png' '{dir}\gshot.png'
+"""
+
+
+def cmd_gshot(a: argparse.Namespace) -> None:
+    """Capture the guest desktop from INSIDE the user session. VBoxManage screenshotpng
+    goes stale once the GA display driver loads; this one never does."""
+    enc = base64.b64encode(GSHOT.format(dir=GUEST_DIR).encode("utf-16-le")).decode()
+    stage = (
+        f"Remove-Item -Force -ErrorAction SilentlyContinue '{GUEST_DIR}\\gshot.png';"
+        f"$a = New-ScheduledTaskAction -Execute '{PS}' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand {enc}';"
+        f"$p = New-ScheduledTaskPrincipal -UserId '{USER}' -LogonType Interactive -RunLevel Limited;"
+        "Register-ScheduledTask -TaskName 'bt-gshot' -Action $a -Principal $p -Force | Out-Null;"
+        "Start-ScheduledTask -TaskName 'bt-gshot';"
+        f"foreach ($i in 1..180) {{ if (Test-Path '{GUEST_DIR}\\gshot.png') {{ 'captured'; break }}; Start-Sleep 1 }}"
+    )
+    r = guest_run(stage, timeout_s=240)
+    if "captured" not in r.stdout:
+        raise SystemExit("guest screenshot not produced within 180s")
+    Path(a.path).parent.mkdir(parents=True, exist_ok=True)
+    vbox("guestcontrol", VM, "copyfrom", "--username", USER, "--password", PASSWORD,
+         f"{GUEST_DIR}\\gshot.png", str(Path(a.path).resolve()), capture=False)
+    print(a.path)
+
+
 def cmd_pull(a: argparse.Namespace) -> None:
     Path(a.dest).parent.mkdir(parents=True, exist_ok=True)
     vbox("guestcontrol", VM, "copyfrom", "--username", USER, "--password", PASSWORD,
@@ -231,6 +311,9 @@ def cmd_status(a: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Guest transcripts carry non-cp1252 text (box-drawing, U+FFFD); never crash on output.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -277,6 +360,25 @@ def main(argv: list[str] | None = None) -> int:
     pl.add_argument("src")
     pl.add_argument("dest")
     pl.set_defaults(fn=cmd_pull)
+
+    pu = sub.add_parser("push")
+    pu.add_argument("src")
+    pu.add_argument("dest")
+    pu.set_defaults(fn=cmd_push)
+
+    ty = sub.add_parser("type")
+    ty.add_argument("text")
+    ty.add_argument("--shot", required=True)
+    ty.add_argument("--settle", type=int, default=30)
+    ty.set_defaults(fn=cmd_type)
+
+    sh = sub.add_parser("shot")
+    sh.add_argument("path")
+    sh.set_defaults(fn=cmd_shot)
+
+    gs = sub.add_parser("gshot", help="screenshot from inside the guest session (never stale)")
+    gs.add_argument("path")
+    gs.set_defaults(fn=cmd_gshot)
 
     st = sub.add_parser("status")
     st.set_defaults(fn=cmd_status)
