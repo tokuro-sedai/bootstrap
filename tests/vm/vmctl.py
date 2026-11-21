@@ -134,6 +134,25 @@ def cmd_snapshot(a: argparse.Namespace) -> None:
     print(f"snapshot {a.name} taken")
 
 
+def release_stale_sessions(restart_svc: bool) -> None:
+    """Kill VBoxManage/VBoxHeadless/VirtualBoxVM processes that target THIS VM (the VM is
+    already off). Optionally restart VBoxSVC, but only when no other VM is running."""
+    ps = (
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'VBoxManage|VBoxHeadless|VirtualBoxVM' "
+        f"-and $_.CommandLine -match '{VM}' -and $_.ProcessId -ne $PID }} | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; \"killed $($_.ProcessId) $($_.Name)\" }"
+    )
+    if restart_svc:
+        running = vbox("list", "runningvms", check=False).stdout.strip()
+        if running:
+            print(f"not restarting VBoxSVC: other VMs running:\n{running}")
+        else:
+            ps += "; Stop-Process -Name VBoxSVC -Force -ErrorAction SilentlyContinue; 'restarted VBoxSVC'"
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True)
+    print(out.stdout.strip() or "no stale processes")
+    time.sleep(5)
+
+
 def cmd_reset(a: argparse.Namespace) -> None:
     if vm_state() in ("running", "paused", "stuck"):
         vbox("controlvm", VM, "poweroff", check=False)
@@ -142,13 +161,18 @@ def cmd_reset(a: argparse.Namespace) -> None:
                 break
             time.sleep(2)
     # The session lock outlives the 'poweroff' state by a few seconds; restore refuses
-    # with "already locked for a session" until it is released.
-    for attempt in range(20):
+    # with "already locked for a session" until it is released. A VBoxManage guestcontrol
+    # orphaned by a killed caller (e.g. `timeout`) holds it indefinitely: after 30s, kill
+    # this VM's leftover harness processes, and if that's not enough and no other VM is
+    # running, restart the per-user VBoxSVC.
+    for attempt in range(40):
         r = vbox("snapshot", VM, "restore", a.name, check=False)
         if r.returncode == 0:
             break
-        if "locked" not in (r.stderr + r.stdout) or attempt == 19:
+        if "locked" not in (r.stderr + r.stdout) or attempt == 39:
             raise SystemExit(f"snapshot restore failed:\n{r.stderr}")
+        if attempt in (10, 20):
+            release_stale_sessions(restart_svc=(attempt == 20))
         time.sleep(3)
     vbox("startvm", VM, "--type", a.session)
     wait_ready(a.timeout)

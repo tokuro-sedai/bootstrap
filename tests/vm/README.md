@@ -131,6 +131,24 @@ Each of these cost real time on 2026-11-20/21; the harness already handles them.
   hashes don't work for this, because the spinner animates.
 - **The VM reboots itself overnight** for Windows Update, killing in-flight
   runs. Re-run from `fresh`; don't debug a stale VM.
+- **The current `fresh` snapshot carries a pending update.** A few minutes
+  after a restore, Windows may install updates and restart. Sometimes it
+  auto-logs `tester` back in, sometimes it stops at the sign-in screen
+  (`vmctl.py type bootstrap-test` logs in). `e2e`/`reset` wait up to 15
+  minutes for the guest, which absorbs the usual case; one run on
+  2026-11-21 passed through it. To retire it, re-take `fresh` from a fully
+  updated, idle, logged-in state, with no `RebootRequired` /
+  `RebootPending` keys and no `C:\bt`. Budget an hour; a forced restart
+  mid-servicing once left the guest unresponsive, and restoring `fresh`
+  recovered it.
+- **`LoggedInUsers` lies right after a restore.** It can read "No value set"
+  while the guest is logged in and guest exec works. Trust a `vmctl.py exec`
+  probe instead.
+- **Killing `vmctl.py` (e.g. with `timeout`) orphans its `VBoxManage
+  guestcontrol` child**, which holds a session lock. The next restore then
+  fails with "already locked for a session". `reset` now retries, kills this
+  VM's leftover harness processes, and as a last resort restarts `VBoxSVC`
+  (only when no other VM is running).
 - **This VM is slow** (VirtualBox on Hyper-V, NEM). Unpacking PortableGit
   (about 350 MB) takes about 15 minutes, mostly Defender scanning each file.
   A real PC takes about one minute. Slow is not a stall: check that the
