@@ -428,3 +428,35 @@ Existing machine, to refresh arcturus and verify the ecosystem:
 - A downstream `scripts/provision.ps1` inside arcturus that picks up
   where `bootstrap.ps1` leaves off: age key import, SSH keygen, machine
   role setup.
+
+## Amendments
+
+### 2026-11-21: fresh-install hardening (15 steps, sign-ins last)
+
+Found by fresh-Windows-11 VM runs (`tests/vm/`) and a live install on a new PC.
+The eight-step design above is superseded as follows. README.md is the
+current description.
+
+- **Claude account** is `jonathan.wheeler@witechnologies.org` (was
+  lifemaideasier.com). Superpowers comes from `tokuro-sedai/superpowers-fork`.
+- **New steps:** execution policy (`RemoteSigned`, CurrentUser; fresh
+  Windows is `Restricted` and won't load the profile), Python 3.13, the
+  simulacrum repo and plugin, Claude settings (marketplaces with
+  auto-update), the PowerShell profile repo-shortcut block, and a final
+  check that a new window defines `arcturus`.
+- **No admin, for real:** winget `--scope user` for Git.Git still raised
+  UAC. Git is PortableGit; gh is the release zip. Winget is only used for
+  Python, so `ac-no-winget-aborts-cleanly` now applies only to step 4.
+- **Order:** every step that needs no account runs before the first
+  sign-in. `BOOTSTRAP_STOP_BEFORE_SIGNIN=1` stops there, which makes steps
+  1–7 testable unattended (`vmctl.py e2e`).
+- **New ACs:**
+  - **ac-execution-policy-for-new-windows**: a new window runs the profile.
+  - **ac-profile-block-loads**: step 7's new-window post-check.
+  - **ac-arcturus-new-window**: the top acceptance test. In a NEW window,
+    `arcturus` cds into the checkout and starts a signed-in Claude with
+    extremis and superpowers; see `tests/vm/accept-arcturus.ps1`.
+  - **ac-signin-last**: no step after a sign-in could have run before it.
+- **Sign-in UX:** the sign-in URL and device code are shown in the window,
+  with no "Authenticate Git (Y/n)" question and no credential-helper
+  picker dialog.

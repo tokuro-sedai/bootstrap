@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import base64
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -140,7 +141,15 @@ def cmd_reset(a: argparse.Namespace) -> None:
             if vm_state() in ("poweroff", "aborted", "saved"):
                 break
             time.sleep(2)
-    vbox("snapshot", VM, "restore", a.name)
+    # The session lock outlives the 'poweroff' state by a few seconds; restore refuses
+    # with "already locked for a session" until it is released.
+    for attempt in range(20):
+        r = vbox("snapshot", VM, "restore", a.name, check=False)
+        if r.returncode == 0:
+            break
+        if "locked" not in (r.stderr + r.stdout) or attempt == 19:
+            raise SystemExit(f"snapshot restore failed:\n{r.stderr}")
+        time.sleep(3)
     vbox("startvm", VM, "--type", a.session)
     wait_ready(a.timeout)
 
@@ -295,6 +304,41 @@ def cmd_gshot(a: argparse.Namespace) -> None:
     print(a.path)
 
 
+PRESIGNIN_STEPS = ["execution policy", "git", "git config", "python", "claude", "gh", "repo shortcuts"]
+
+
+def cmd_e2e(a: argparse.Namespace) -> None:
+    """Unattended fresh-install e2e of every step that needs no account: restore the
+    snapshot, run the given bootstrap with BOOTSTRAP_STOP_BEFORE_SIGNIN=1 in a real
+    user window, then assert each pre-sign-in step reported changed/already-satisfied
+    and the run stopped at the sign-in boundary. Exit 0 = PASS."""
+    if not a.no_reset:
+        cmd_reset(argparse.Namespace(name=a.snapshot, session=a.session, timeout=900))
+    src = Path(a.bootstrap).resolve()
+    guest_run(f"New-Item -ItemType Directory -Force -Path '{GUEST_DIR}' | Out-Null", timeout_s=60)
+    vbox("guestcontrol", VM, "copyto", "--username", USER, "--password", PASSWORD, str(src), f"{GUEST_DIR}\\bootstrap.ps1")
+    started = time.time()
+    cmd_launch(argparse.Namespace(
+        name=a.name, script=None, wait=True, timeout=a.timeout,
+        command=f"$env:BOOTSTRAP_STOP_BEFORE_SIGNIN = '1'; iex (Get-Content -Raw '{GUEST_DIR}\\bootstrap.ps1')",
+    ))
+    log = guest_run(f"Get-Content -Raw '{GUEST_DIR}\\{a.name}.log'", timeout_s=60).stdout
+    results = {m.group(1).strip(): m.group(2) for m in
+               re.finditer(r"^\[\d+/\d+\] (.+?)\s+\.\.\.\s*(changed|already satisfied|FAILED)", log, re.M)}
+    ok = True
+    for step in PRESIGNIN_STEPS:
+        status = results.get(step)
+        good = status in ("changed", "already satisfied")
+        ok &= good
+        print(f"E2E-{'OK  ' if good else 'FAIL'} {step:<18} {status or 'NOT REACHED'}")
+    stopped = "BOOTSTRAP_STOP_BEFORE_SIGNIN=1: stopped before step" in log
+    ok &= stopped
+    print(f"E2E-{'OK  ' if stopped else 'FAIL'} {'stopped at sign-in':<18} {'yes' if stopped else 'no'}")
+    print(f"E2E-VERDICT {'PASS' if ok else 'FAIL'} ({int(time.time() - started)}s run)")
+    if not ok:
+        sys.exit(1)
+
+
 def cmd_pull(a: argparse.Namespace) -> None:
     Path(a.dest).parent.mkdir(parents=True, exist_ok=True)
     vbox("guestcontrol", VM, "copyfrom", "--username", USER, "--password", PASSWORD,
@@ -379,6 +423,15 @@ def main(argv: list[str] | None = None) -> int:
     gs = sub.add_parser("gshot", help="screenshot from inside the guest session (never stale)")
     gs.add_argument("path")
     gs.set_defaults(fn=cmd_gshot)
+
+    ee = sub.add_parser("e2e", help="unattended fresh-install run up to the first sign-in, with assertions")
+    ee.add_argument("--bootstrap", default=str(Path(__file__).resolve().parents[2] / "bootstrap.ps1"))
+    ee.add_argument("--snapshot", default="fresh")
+    ee.add_argument("--session", default="separate")
+    ee.add_argument("--name", default="e2e")
+    ee.add_argument("--timeout", type=int, default=5400)
+    ee.add_argument("--no-reset", action="store_true", help="run on the VM as-is (tests the re-run path)")
+    ee.set_defaults(fn=cmd_e2e)
 
     st = sub.add_parser("status")
     st.set_defaults(fn=cmd_status)

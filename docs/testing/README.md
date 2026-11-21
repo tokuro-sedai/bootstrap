@@ -6,22 +6,38 @@ inside the script by fail-fast probes and post-checks.
 
 ## Environment
 
-A clean Windows 11 host (physical or VM) with:
+### clean-win11-vm
 
-- PowerShell 5.1 (ships with Windows 11).
-- `winget` available on PATH.
+The VirtualBox VM `bootstrap-test-win11`, restored to its `fresh` snapshot
+(Windows 11 Home, user `tester` logged in, Guest Additions running,
+nothing bootstrapped). Everything about building, driving and trusting it
+is in [`tests/vm/README.md`](../../tests/vm/README.md), including the
+gotchas that make naive runs lie, e.g. Task Scheduler windows where
+browsers never open, and stale screenshots.
+
+- PowerShell 5.1 (ships with Windows 11). No winget dependency for Git or
+  gh.
 - Network access to `github.com`, `raw.githubusercontent.com`, and
   `claude.ai`.
-- Browser available for the interactive OAuth steps
-  (`claude auth login`, `gh auth login`).
+- The window under test must be a **real user window**: started by the
+  shell, non-elevated, no `-ExecutionPolicy` override. `vmctl.py launch`
+  does this.
 
-VM snapshots are the recommended way to reset between runs.
+### Sign-in coverage
+
+Steps 1–7 need no account; `vmctl.py e2e` covers them unattended
+(`BOOTSTRAP_STOP_BEFORE_SIGNIN=1`). Steps 8–15 need the real Claude and
+GitHub sign-ins. Run them on the real target machine, or in the VM with
+**dedicated test accounts**. Never put personal work credentials into a
+VM an agent can reach. Restore `fresh` after any signed-in run.
 
 ## How to run the suite
 
-Test cards are run manually: each card's frontmatter describes the
-starting state and the assertion to check. QA subagents dispatched by
-`/extremis:run-test-cases` execute each card against the declared env.
+- `python tests/vm/vmctl.py e2e` runs the automated pre-sign-in card
+  (`test-bootstrap-presignin-vm-e2e`).
+- The other cards are run manually or by QA subagents dispatched by
+  `/extremis:run-test-cases`. Each card's frontmatter describes the
+  starting state and the assertion to check.
 
 ## Test kinds
 

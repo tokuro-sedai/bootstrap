@@ -8,6 +8,11 @@ covers:
   - ac-git-identity-overwrite
 ---
 
+> **Stale (written for the original 8-step, winget-based script).** Step numbers,
+> `[n/8]` patterns and winget prerequisites predate the 15-step script (README.md).
+> Refresh it against README.md before running. Git and gh no longer use winget;
+> only Python does.
+
 # Wrong git-identity recovery — bootstrap.ps1 overwrites mismatched global config
 
 Run `bootstrap.ps1` on a Windows 11 host where `git` is already installed
@@ -28,7 +33,7 @@ identity, and that the rest of the script proceeds normally.
 - Network access to `github.com`, `raw.githubusercontent.com`, and
   `claude.ai`.
 - QA operator has credentials to log into:
-  - `jonathan.wheeler@lifemaideasier.com` (Claude) via OAuth in a
+  - `jonathan.wheeler@witechnologies.org` (Claude) via OAuth in a
     browser.
   - `jonathan.wheeler@witechnologies.org` with `tokuro-sedai` org
     access (GitHub) via OAuth in a browser.
@@ -73,7 +78,7 @@ identity, and that the rest of the script proceeds normally.
    (i.e., not "already satisfied" — the probe must detect the
    mismatch and the fix must run).
 3. When `claude auth login` opens a browser, complete OAuth as
-   `jonathan.wheeler@lifemaideasier.com`.
+   `jonathan.wheeler@witechnologies.org`.
 4. When `gh auth login` prompts and opens a browser, complete OAuth
    as `jonathan.wheeler@witechnologies.org`.
 5. Wait for the script to report `ecosystem bootstrap complete.`.

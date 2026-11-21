@@ -14,52 +14,82 @@ irm https://raw.githubusercontent.com/tokuro-sedai/bootstrap/main/bootstrap.ps1 
 
 ## What it does
 
-Eight idempotent steps:
+Fifteen idempotent steps, each one probe → act → post-check. Nothing needs
+admin, and nothing raises a UAC prompt.
 
-1. Installs `git` (if missing).
-2. Sets global git identity to `Tokuro` /
-   `jonathan.wheeler@witechnologies.org`.
-3. Installs Claude Code (if missing) and persists
-   `%USERPROFILE%\.local\bin` to user PATH.
-4. Authenticates Claude Code as `jonathan.wheeler@witechnologies.org`
-   (opens a browser).
-5. Installs `gh` (if missing), authenticates it as the
-   `tokuro-sedai`-org account, and wires `gh` as git's credential
-   helper for `github.com`.
-6. Installs the `extremis` plugin from `tokuro-sedai/extremis`.
-7. Installs the `superpowers` plugin from `tokuro-sedai/superpowers-fork`.
-8. Clones `tokuro-sedai/arcturus` to
-   `C:\source\repos\tokuro-sedai\arcturus` (or `git pull` if already
-   present).
+Needs no account:
 
-Re-runs on an already-provisioned machine are a no-op except for the
-arcturus step, which runs `git pull`.
+1. **Execution policy:** sets `RemoteSigned` for the current user, so new
+   windows can load the PowerShell profile. Fresh Windows defaults to
+   `Restricted`.
+2. **Git:** PortableGit into `%LOCALAPPDATA%\Programs\Git`, `cmd\` on the
+   user PATH.
+3. **git config:** identity `Tokuro` / `jonathan.wheeler@witechnologies.org`;
+   `credential.helper` = Git Credential Manager (replaces PortableGit's
+   helper-picker dialog).
+4. **Python 3.13** (per-user winget install; the Microsoft Store stub doesn't
+   count).
+5. **Claude Code:** `%USERPROFILE%\.local\bin` on the user PATH.
+6. **gh:** release zip into `%LOCALAPPDATA%\Programs\gh`.
+7. **Repo shortcuts:** a managed block in both PowerShell profiles. Every
+   directory under `C:\source\repos\tokuro-sedai` becomes a command that
+   cds there and starts `claude`. Checked by opening a new window.
+
+Sign-ins (a browser opens; if it doesn't, Ctrl+click the link shown):
+
+8. **Claude auth** as `jonathan.wheeler@witechnologies.org`.
+9. **gh auth** as `tokuro-sedai`, with gh as git's github.com credential
+   helper.
+
+Needs those sign-ins:
+
+10. **Repos:** clones (or fast-forwards) `arcturus` and `simulacrum` into
+    `C:\source\repos\tokuro-sedai`.
+11. – 13. **Plugins:** `extremis`, `superpowers` (from
+    `tokuro-sedai/superpowers-fork`), `simulacrum`.
+14. **Claude settings:** registers the three marketplaces with
+    auto-update.
+15. **`arcturus` shortcut:** a new window defines `arcturus` pointing at
+    the checkout.
+
+When it finishes: open a **new** PowerShell window and type `arcturus`.
+
+Re-running is safe: finished steps report `already satisfied`, and repos
+fast-forward. If a step fails, the script says which one. Fix the cause and
+re-run the one-liner.
 
 ## Assumes
 
-- Windows 11, regular user (no admin prompt).
-- `winget` is present (ships with Windows 11).
-- A browser is available for Claude and `gh` OAuth flows.
+- Windows 11, regular (non-admin) user.
+- A browser for the Claude and GitHub sign-ins.
 
 ## Does NOT do
 
 - Age/sops key provisioning.
 - SSH key generation or deployment.
 - Per-machine role setup (SSH server, Docker host).
-- Dotfiles, MCP servers beyond the two plugins.
+- Dotfiles, MCP servers beyond the three plugins.
 - macOS or Linux.
 
 ## Behaviour on a non-fresh machine
 
-- If Claude is already authed as a different account, step 4 logs out
+- If Claude is already authed as a different account, step 8 logs out
   and prompts a re-login as `jonathan.wheeler@witechnologies.org`.
-- If the global git identity is set to other values, step 2 overwrites
+- If the global git identity is set to other values, step 3 overwrites
   to `Tokuro` / `jonathan.wheeler@witechnologies.org`.
 - If `C:\source\repos\tokuro-sedai\arcturus` exists but is some other
-  repo, step 8 aborts with "refusing to touch" and does not modify the
+  repo, step 10 aborts with "refusing to touch" and does not modify the
   directory.
+
+## Testing
+
+`python tests/vm/vmctl.py e2e` runs the script on a fresh Windows 11 VM up
+to the first sign-in, unattended, and asserts every step before it. See
+[`tests/vm/README.md`](tests/vm/README.md) for the harness and the
+lessons behind it. Test cards live under `tests/qa/`.
 
 ## Design
 
-See `docs/superpowers/specs/` for the design spec and acceptance
-criteria. Test cards live under `tests/qa/`.
+`docs/superpowers/specs/` holds the original (eight-step) design spec and
+its acceptance criteria. The amendments section at its end records how the
+steps have changed since.

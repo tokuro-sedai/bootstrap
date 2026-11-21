@@ -9,6 +9,11 @@ covers:
   - ac-setup-git-idempotent
 ---
 
+> **Stale (written for the original 8-step, winget-based script).** Step numbers,
+> `[n/8]` patterns and winget prerequisites predate the 15-step script (README.md).
+> Refresh it against README.md before running. Git and gh no longer use winget;
+> only Python does.
+
 # Re-run idempotency — bootstrap.ps1 on a provisioned machine
 
 Re-run the one-liner on a Windows 11 host that has already been
@@ -25,7 +30,7 @@ not duplicate the `github.com` credential helper line.
   - `git`, `claude`, `gh` resolvable on PATH.
   - Global git identity set to `Tokuro` /
     `jonathan.wheeler@witechnologies.org`.
-  - Claude authed as `jonathan.wheeler@lifemaideasier.com`.
+  - Claude authed as `jonathan.wheeler@witechnologies.org`.
   - `gh` authed on `github.com` as the `tokuro-sedai` user account;
     git credential helper configured.
   - `extremis` and `superpowers` plugins installed.
