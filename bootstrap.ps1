@@ -157,22 +157,31 @@ function Invoke-WingetUserInstall {
 
 # --- step: PowerShell execution policy -----------------------------------
 
+function Get-PersistentExecutionPolicy {
+    # The policy a NEW PowerShell window gets: ignore the Process scope (an
+    # `-ExecutionPolicy Bypass` launch would otherwise mask a Restricted user).
+    foreach ($scope in 'MachinePolicy', 'UserPolicy', 'CurrentUser', 'LocalMachine') {
+        $p = Get-ExecutionPolicy -Scope $scope
+        if ("$p" -ne 'Undefined') { return "$p" }
+    }
+    return 'Restricted'   # Windows client default when nothing is set
+}
+
 function Ensure-ExecutionPolicy {
     Write-StepHeader -Label 'execution policy'
     # Fresh Windows 11 client defaults to Restricted, which blocks profile.ps1
     # (and therefore the repo shortcuts). CurrentUser scope needs no admin.
-    $current   = Get-ExecutionPolicy -Scope CurrentUser
-    $effective = Get-ExecutionPolicy
-    if ($effective -in 'RemoteSigned', 'Unrestricted', 'Bypass') {
-        Write-StepStatus -Status skipped -Detail "effective $effective"
+    $before = Get-PersistentExecutionPolicy
+    if ($before -in 'RemoteSigned', 'Unrestricted', 'Bypass') {
+        Write-StepStatus -Status skipped -Detail "new windows get $before"
         return
     }
     Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
-    $after = Get-ExecutionPolicy
+    $after = Get-PersistentExecutionPolicy
     if ($after -notin 'RemoteSigned', 'Unrestricted', 'Bypass') {
-        throw "Ensure-ExecutionPolicy post-check failed: effective policy is $after (a Group Policy may be overriding CurrentUser)."
+        throw "Ensure-ExecutionPolicy post-check failed: new windows still get $after (a Group Policy may be overriding CurrentUser)."
     }
-    Write-StepStatus -Status changed -Detail "CurrentUser $current -> RemoteSigned"
+    Write-StepStatus -Status changed -Detail "$before -> RemoteSigned (CurrentUser)"
 }
 
 # --- step: git -----------------------------------------------------------
@@ -522,8 +531,15 @@ function Ensure-RepoShortcuts {
         }
     }
     # Post-check: a NEW Windows PowerShell loads the profile and defines `arcturus`.
-    $check = Invoke-Native (Join-Path $PSHOME 'powershell.exe') @('-NoLogo', '-NonInteractive', '-Command',
-        "if (Get-Command arcturus -CommandType Function -ErrorAction SilentlyContinue) { 'SHORTCUT-OK' } else { 'SHORTCUT-MISSING' }")
+    # Drop any inherited process-scope policy so the child sees what a fresh window sees.
+    $savedPref = $env:PSExecutionPolicyPreference
+    Remove-Item Env:\PSExecutionPolicyPreference -ErrorAction SilentlyContinue
+    try {
+        $check = Invoke-Native (Join-Path $PSHOME 'powershell.exe') @('-NoLogo', '-NonInteractive', '-Command',
+            "if (Get-Command arcturus -CommandType Function -ErrorAction SilentlyContinue) { 'SHORTCUT-OK' } else { 'SHORTCUT-MISSING' }")
+    } finally {
+        if ($null -ne $savedPref) { $env:PSExecutionPolicyPreference = $savedPref }
+    }
     if ($check.Text -notmatch 'SHORTCUT-OK') {
         throw "Ensure-RepoShortcuts post-check failed: a new PowerShell does not define 'arcturus':`n$($check.Text)"
     }
