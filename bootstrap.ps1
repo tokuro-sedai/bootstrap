@@ -37,6 +37,7 @@ $Script:ArcturusRepo        = 'tokuro-sedai/arcturus'
 $Script:SimulacrumRepo      = 'tokuro-sedai/simulacrum'
 $Script:ClaudeBinDir        = Join-Path $env:USERPROFILE '.local\bin'
 $Script:GhInstallDir        = Join-Path $env:LOCALAPPDATA 'Programs\gh'
+$Script:GitInstallDir       = Join-Path $env:LOCALAPPDATA 'Programs\Git'
 
 $Script:Plugins = @(
     @{ Name = 'extremis';    Marketplace = 'extremis';        Source = 'https://github.com/tokuro-sedai/extremis.git'; Kind = 'git'    },
@@ -193,17 +194,45 @@ function Ensure-ExecutionPolicy {
 
 # --- step: git -----------------------------------------------------------
 
+function Install-GitPortable {
+    # winget's Git.Git "user scope" entry runs the machine installer, which
+    # elevates itself (UAC). PortableGit is the official self-extracting build:
+    # full Git + Git Bash (Claude Code needs bash), unpacked per-user, no admin.
+    $rel = Invoke-RestMethod -UseBasicParsing 'https://api.github.com/repos/git-for-windows/git/releases/latest'
+    $asset = $rel.assets | Where-Object { $_.name -match '^PortableGit-[\d.]+-64-bit\.7z\.exe$' } | Select-Object -First 1
+    if (-not $asset) { throw "Could not find a PortableGit 64-bit asset in git-for-windows release $($rel.tag_name)." }
+    $tmp = Join-Path $env:TEMP "portablegit-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    try {
+        $sfx = Join-Path $tmp $asset.name
+        Invoke-WebRequest -UseBasicParsing $asset.browser_download_url -OutFile $sfx
+        if (Test-Path $Script:GitInstallDir) { Remove-Item -Recurse -Force $Script:GitInstallDir }
+        # 7-Zip SFX: -o<dir> target, -y no prompts. Wait for it to finish.
+        $p = Start-Process -FilePath $sfx -ArgumentList @("-o`"$($Script:GitInstallDir)`"", '-y') -Wait -PassThru -WindowStyle Hidden
+        if ($p.ExitCode -ne 0) { throw "PortableGit extraction exited with $($p.ExitCode)." }
+    } finally {
+        Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+    }
+    Add-DirToUserPath -Dir (Join-Path $Script:GitInstallDir 'cmd')
+    # Tell Claude Code where Git Bash is (it can't infer it for a non-standard install dir).
+    $bash = Join-Path $Script:GitInstallDir 'bin\bash.exe'
+    [Environment]::SetEnvironmentVariable('CLAUDE_CODE_GIT_BASH_PATH', $bash, 'User')
+    $env:CLAUDE_CODE_GIT_BASH_PATH = $bash
+    return $rel.tag_name
+}
+
 function Ensure-Git {
     Write-StepHeader -Label 'git'
+    if (-not (Test-Cmd git) -and (Test-Path (Join-Path $Script:GitInstallDir 'cmd\git.exe'))) {
+        Add-DirToUserPath -Dir (Join-Path $Script:GitInstallDir 'cmd')
+    }
     if (Test-Cmd git) {
         Write-StepStatus -Status skipped -Detail ((Invoke-Native git @('--version')).Text)
         return
     }
-    Invoke-WingetUserInstall -Id 'Git.Git'
-    $userGit = Join-Path $env:LOCALAPPDATA 'Programs\Git\cmd'
-    if (-not (Test-Cmd git) -and (Test-Path (Join-Path $userGit 'git.exe'))) { Add-DirToUserPath -Dir $userGit }
+    $tag = Install-GitPortable
     if (-not (Test-Cmd git)) { throw "Ensure-Git post-check failed: git still not on PATH after install." }
-    Write-StepStatus -Status changed -Detail ("installed " + (Invoke-Native git @('--version')).Text)
+    Write-StepStatus -Status changed -Detail ("installed PortableGit $tag -> $Script:GitInstallDir (" + (Invoke-Native git @('--version')).Text + ")")
 }
 
 # --- step: git config ----------------------------------------------------
