@@ -242,22 +242,47 @@ function Ensure-Git {
 
 # --- step: git config ----------------------------------------------------
 
+function Get-GlobalCredHelpers {
+    @((Invoke-Native git @('config', '--global', '--get-all', 'credential.helper')).Output)
+}
+
+function Test-GlobalCredHelperOk {
+    # PortableGit's system gitconfig sets credential.helper=helper-selector, which
+    # pops a "Select a credential helper" dialog the first time git needs a
+    # credential. A blank global entry severs the system chain; then use GCM.
+    $h = Get-GlobalCredHelpers
+    return ($h.Count -ge 2 -and $h[0] -eq '' -and $h[-1] -eq 'manager')
+}
+
 function Ensure-GitConfig {
     Write-StepHeader -Label 'git config'
     $name  = (Invoke-Native git @('config', '--global', 'user.name')).Text.Trim()
     $email = (Invoke-Native git @('config', '--global', 'user.email')).Text.Trim()
-    if ($name -eq $Script:ExpectedGitName -and $email -eq $Script:ExpectedGitEmail) {
-        Write-StepStatus -Status skipped -Detail "$name <$email>"
+    $identityOk = ($name -eq $Script:ExpectedGitName -and $email -eq $Script:ExpectedGitEmail)
+    $helperOk   = Test-GlobalCredHelperOk
+    if ($identityOk -and $helperOk) {
+        Write-StepStatus -Status skipped -Detail "$name <$email>, credential.helper=manager"
         return
     }
-    $null = Invoke-Native git @('config', '--global', 'user.name',  $Script:ExpectedGitName)
-    $null = Invoke-Native git @('config', '--global', 'user.email', $Script:ExpectedGitEmail)
+    if (-not $identityOk) {
+        $null = Invoke-Native git @('config', '--global', 'user.name',  $Script:ExpectedGitName)
+        $null = Invoke-Native git @('config', '--global', 'user.email', $Script:ExpectedGitEmail)
+    }
+    if (-not $helperOk) {
+        $null = Invoke-Native git @('config', '--global', '--unset-all', 'credential.helper')
+        # PS 5.1 drops a bare '' native argument; '""' passes an empty string.
+        $null = Invoke-Native git @('config', '--global', '--add', 'credential.helper', '""')
+        $null = Invoke-Native git @('config', '--global', '--add', 'credential.helper', 'manager')
+    }
     $name  = (Invoke-Native git @('config', '--global', 'user.name')).Text.Trim()
     $email = (Invoke-Native git @('config', '--global', 'user.email')).Text.Trim()
     if ($name -ne $Script:ExpectedGitName -or $email -ne $Script:ExpectedGitEmail) {
         throw "Ensure-GitConfig post-check failed: name='$name' email='$email'"
     }
-    Write-StepStatus -Status changed -Detail "set ($name <$email>)"
+    if (-not (Test-GlobalCredHelperOk)) {
+        throw "Ensure-GitConfig post-check failed: global credential.helper is [$((Get-GlobalCredHelpers) -join ', ')], expected ['', 'manager']."
+    }
+    Write-StepStatus -Status changed -Detail "set ($name <$email>, credential.helper=manager)"
 }
 
 # --- step: python ----------------------------------------------------------
@@ -396,6 +421,19 @@ function Ensure-GhAuth {
     if ($authOk -and $helperOk) {
         Write-StepStatus -Status skipped -Detail 'authed + credential helper wired'
         return
+    }
+    if (-not $helperOk) {
+        # Wire gh as git's github.com credential helper BEFORE login (what
+        # `gh auth setup-git` writes). gh then skips its "Authenticate Git with
+        # your GitHub credentials? (Y/n)" prompt, and never routes through
+        # PortableGit's helper-selector dialog.
+        $ghExe = ((Get-Command gh -CommandType Application | Select-Object -First 1).Source) -replace '\\', '/'
+        foreach ($h in 'https://github.com', 'https://gist.github.com') {
+            $key = "credential.$h.helper"
+            $null = Invoke-Native git @('config', '--global', '--unset-all', $key)
+            $null = Invoke-Native git @('config', '--global', '--add', $key, '""')
+            $null = Invoke-Native git @('config', '--global', '--add', $key, "!'$ghExe' auth git-credential")
+        }
     }
     if (-not $authOk) {
         Write-Prompt "Signing in to GitHub. Copy the one-time code, press Enter to open the browser, and approve as '$Script:ExpectedGhLogin'."
