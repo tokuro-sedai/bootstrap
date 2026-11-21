@@ -94,16 +94,21 @@ function Invoke-Native {
 }
 
 function Invoke-Interactive {
-    # Run a native command attached to the console (browser/device-code flows),
-    # returning its exit code. No redirection, so stderr can't become an error.
+    # Run a native command attached to the REAL console (browser/device-code
+    # flows), returning its exit code. `& cmd` inside a function sends the
+    # command's stdout into the function's output pipeline: the user never sees
+    # the URL/code and the tool sees a non-TTY stdout (no browser). Start-Process
+    # -NoNewWindow hands the child this window's console handles directly.
     param(
         [Parameter(Mandatory)][string]$FilePath,
         [string[]]$ArgumentList = @()
     )
-    $saved = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try { & $FilePath @ArgumentList; return $LASTEXITCODE }
-    finally { $ErrorActionPreference = $saved }
+    $exe = (Get-Command $FilePath -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $quoted = @($ArgumentList | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } })
+    $spArgs = @{ FilePath = $exe; NoNewWindow = $true; Wait = $true; PassThru = $true }
+    if ($quoted.Count -gt 0) { $spArgs.ArgumentList = $quoted }
+    $p = Start-Process @spArgs
+    return $p.ExitCode
 }
 
 function Update-EnvPath {
@@ -337,7 +342,7 @@ function Ensure-ClaudeAuth {
         $null = Invoke-Native claude @('auth', 'logout')
     }
     Write-Prompt "Signing in to Claude. A browser will open -- sign in as $Script:ExpectedClaudeEmail."
-    $code = Invoke-Interactive claude @('auth', 'login')
+    $code = Invoke-Interactive claude @('auth', 'login', '--claudeai', '--email', $Script:ExpectedClaudeEmail)
     $after = Get-ClaudeAuthedEmail
     if ($after -ne $Script:ExpectedClaudeEmail) {
         throw "Ensure-ClaudeAuth post-check failed: authed as '$after' (login exit $code), expected '$Script:ExpectedClaudeEmail'."
