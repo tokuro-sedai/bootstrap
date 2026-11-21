@@ -8,6 +8,11 @@ covers:
   - ac-no-winget-aborts-cleanly
 ---
 
+> **Stale (written for the original 8-step, winget-based script).** Step numbers,
+> `[n/8]` patterns and winget prerequisites predate the 15-step script (README.md).
+> Refresh it against README.md before running. Git and gh no longer use winget;
+> only Python does.
+
 # No-winget abort — bootstrap.ps1 fails fast at step 1
 
 Run `bootstrap.ps1` on a Windows 11 host where `winget` is not resolvable

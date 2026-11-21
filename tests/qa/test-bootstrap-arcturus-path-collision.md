@@ -8,6 +8,11 @@ covers:
   - ac-arcturus-path-collision
 ---
 
+> **Stale (written for the original 8-step, winget-based script).** Step numbers,
+> `[n/8]` patterns and winget prerequisites predate the 15-step script (README.md).
+> Refresh it against README.md before running. Git and gh no longer use winget;
+> only Python does.
+
 # Path collision — bootstrap.ps1 refuses to touch a foreign arcturus path
 
 Run `bootstrap.ps1` against a host where
@@ -27,7 +32,7 @@ touch" error and leave the existing directory bit-for-bit unchanged.
   `winget install --id Git.Git -e --silent` before Setup so the seed step
   can clone the decoy.
 - QA operator has credentials to log into:
-  - `jonathan.wheeler@lifemaideasier.com` (Claude) via OAuth in a
+  - `jonathan.wheeler@witechnologies.org` (Claude) via OAuth in a
     browser.
   - `jonathan.wheeler@witechnologies.org` with `tokuro-sedai` org
     access (GitHub) via OAuth in a browser.
@@ -74,7 +79,7 @@ touch" error and leave the existing directory bit-for-bit unchanged.
    irm https://raw.githubusercontent.com/tokuro-sedai/bootstrap/main/bootstrap.ps1 | iex
    ```
 2. When `claude auth login` opens a browser, complete OAuth as
-   `jonathan.wheeler@lifemaideasier.com`.
+   `jonathan.wheeler@witechnologies.org`.
 3. When `gh auth login` prompts and opens a browser, complete OAuth as
    `jonathan.wheeler@witechnologies.org`.
 4. Allow steps 1–7 to run normally; step 8 is the one under test.

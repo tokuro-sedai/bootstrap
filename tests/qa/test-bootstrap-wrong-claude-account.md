@@ -8,6 +8,11 @@ covers:
   - ac-claude-wrong-account
 ---
 
+> **Stale (written for the original 8-step, winget-based script).** Step numbers,
+> `[n/8]` patterns and winget prerequisites predate the 15-step script (README.md).
+> Refresh it against README.md before running. Git and gh no longer use winget;
+> only Python does.
+
 # Wrong Claude account recovery — Step 4 logout-and-re-auth
 
 Run `bootstrap.ps1` on a Windows 11 host where `claude` is already
@@ -15,7 +20,7 @@ installed and authed as a DIFFERENT email, and verify that Step 4
 (`Ensure-ClaudeAuth`) detects the mismatch, logs the wrong account out,
 prompts the operator to log in as the expected email, re-probes, and
 finishes with `claude auth status` reporting
-`jonathan.wheeler@lifemaideasier.com`.
+`jonathan.wheeler@witechnologies.org`.
 
 ## Prerequisites
 
@@ -26,9 +31,9 @@ finishes with `claude auth status` reporting
   `claude.ai`.
 - The QA operator has credentials for **two** Claude-capable identities:
   - **Decoy account** — any Claude account whose email is NOT
-    `jonathan.wheeler@lifemaideasier.com` (e.g., a personal test
+    `jonathan.wheeler@witechnologies.org` (e.g., a personal test
     account). Used to seed the wrong-state precondition.
-  - **Expected account** — `jonathan.wheeler@lifemaideasier.com` via
+  - **Expected account** — `jonathan.wheeler@witechnologies.org` via
     OAuth in a browser. Used to satisfy the AC.
 - The operator also has credentials for the `tokuro-sedai` GitHub
   user account (associated email `jonathan.wheeler@witechnologies.org`)
@@ -61,7 +66,7 @@ finishes with `claude auth status` reporting
    $before
    ```
    The output must show an authed email, and that email must NOT be
-   `jonathan.wheeler@lifemaideasier.com`. If it does match, the
+   `jonathan.wheeler@witechnologies.org`. If it does match, the
    precondition is wrong — restart from step 1 with a different decoy.
 6. Capture the decoy email for the Pass Criteria comparison:
    ```powershell
@@ -81,7 +86,7 @@ finishes with `claude auth status` reporting
    - Probe reports the decoy email as the current authed account.
    - Script announces it is logging the wrong account out.
    - `claude auth login` opens a browser.
-4. Complete the OAuth flow as `jonathan.wheeler@lifemaideasier.com`.
+4. Complete the OAuth flow as `jonathan.wheeler@witechnologies.org`.
 5. When `gh auth login` prompts (Step 5), complete OAuth as
    `jonathan.wheeler@witechnologies.org`. (Required only so the run
    reaches its success banner; not asserted by this card.)
@@ -93,7 +98,7 @@ ALL must pass for this card.
 
 - **ac-claude-wrong-account: pre-state observed** — The Setup step 5
   output established that `claude auth status` reported an email that
-  is not `jonathan.wheeler@lifemaideasier.com`. Recorded in `$decoyEmail`.
+  is not `jonathan.wheeler@witechnologies.org`. Recorded in `$decoyEmail`.
 - **ac-claude-wrong-account: logout-then-login executed** — During the
   script run, Step 4's status line indicated the wrong-account branch
   was taken (the line is NOT `already satisfied`; it reflects a
@@ -105,7 +110,7 @@ ALL must pass for this card.
   $after = claude auth status
   $after
   $afterEmail = ($after | Select-String -Pattern '[\w\.-]+@[\w\.-]+').Matches[0].Value
-  $afterEmail -eq 'jonathan.wheeler@lifemaideasier.com'
+  $afterEmail -eq 'jonathan.wheeler@witechnologies.org'
   ```
   The final expression evaluates to `True`.
 - **ac-claude-wrong-account: email actually changed** — `$afterEmail`
@@ -122,7 +127,7 @@ ALL must pass for this card.
 ## Fail-Fast
 
 - If the precondition in Setup step 5 shows
-  `jonathan.wheeler@lifemaideasier.com` as the current authed email,
+  `jonathan.wheeler@witechnologies.org` as the current authed email,
   the wrong-state was not seeded — abort, do NOT run the script,
   reset the VM, and retry with a different decoy. This is a setup
   defect, not a card FAIL.

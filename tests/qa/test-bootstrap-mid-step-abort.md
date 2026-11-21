@@ -8,6 +8,11 @@ covers:
   - ac-failing-step-aborts
 ---
 
+> **Stale (written for the original 8-step, winget-based script).** Step numbers,
+> `[n/8]` patterns and winget prerequisites predate the 15-step script (README.md).
+> Refresh it against README.md before running. Git and gh no longer use winget;
+> only Python does.
+
 # Mid-step abort — bootstrap.ps1 fails legibly and stops
 
 Inject a deterministic fault that makes a mid-pipeline step fail, run the
