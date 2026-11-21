@@ -176,7 +176,14 @@ function Ensure-ExecutionPolicy {
         Write-StepStatus -Status skipped -Detail "new windows get $before"
         return
     }
-    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+    try {
+        Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+    } catch [System.Security.SecurityException] {
+        # "updated successfully, but overridden by a more specific scope": the
+        # CurrentUser value WAS written; this window just has a Process-scope
+        # override (e.g. launched with -ExecutionPolicy Bypass). The post-check
+        # below verifies what a new window gets.
+    }
     $after = Get-PersistentExecutionPolicy
     if ($after -notin 'RemoteSigned', 'Unrestricted', 'Bypass') {
         throw "Ensure-ExecutionPolicy post-check failed: new windows still get $after (a Group Policy may be overriding CurrentUser)."
